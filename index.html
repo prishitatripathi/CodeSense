@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CodeSense - Project Chimera</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/esprima@4.0.1/dist/esprima.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/atom-one-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Fira+Code&display=swap');
+        
+        body {
+            font-family: 'Fira Code', monospace;
+            background-color: #030712;
+            color: #E5E7EB;
+            overflow: hidden;
+        }
+
+        .header-font { font-family: 'Orbitron', sans-serif; }
+
+        .hud-panel {
+            background: rgba(16, 24, 39, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid #4ade80;
+            border-radius: 8px;
+            box-shadow: 0 0 25px rgba(74, 222, 128, 0.3), inset 0 0 15px rgba(74, 222, 128, 0.2);
+        }
+
+        #code-editor-wrapper { position: relative; }
+        #codeInput {
+            position: absolute; top: 0; left: 0;
+            width: 100%; height: 100%; padding: 1rem;
+            color: transparent; background: transparent;
+            caret-color: #4ade80; border: none; outline: none;
+            resize: none; white-space: pre; z-index: 1;
+        }
+        #highlightedCode { pointer-events: none; z-index: 0; }
+        .highlighted-line {
+            background-color: rgba(239, 68, 68, 0.4);
+            display: block;
+            transition: background-color 0.5s;
+        }
+
+        canvas#bio-bg {
+            position: fixed; top: 0; left: 0;
+            width: 100%; height: 100%; z-index: -1; opacity: 0.1;
+        }
+
+        #tooltip {
+            position: absolute; display: none; padding: 10px 14px;
+            background-color: rgba(3, 7, 18, 0.9); color: white;
+            border-radius: 6px; border: 1px solid #4ade80;
+            pointer-events: none; font-size: 13px; z-index: 1000;
+        }
+        
+        #inspector-panel {
+            position: absolute; top: 0; right: 0; width: 320px; height: 100%;
+            background: rgba(10, 20, 35, 0.9); backdrop-filter: blur(15px);
+            border-left: 1px solid #4ade80;
+            transform: translateX(100%);
+            transition: transform 0.5s cubic-bezier(0.23, 1, 0.32, 1);
+            z-index: 50;
+        }
+        #inspector-panel.open { transform: translateX(0); }
+        #inspector-panel pre { background-color: #030712; border: 1px solid #155e75; padding: 0.5rem; border-radius: 4px; white-space: pre-wrap; word-wrap: break-word; font-size: 0.75rem; }
+
+        @keyframes alert-flash {
+            0%, 100% { background-color: transparent; box-shadow: 0 0 25px rgba(74, 222, 128, 0.3); }
+            50% { background-color: rgba(220, 38, 38, 0.2); box-shadow: 0 0 40px rgba(220, 38, 38, 0.8); }
+        }
+        .containment-breach { animation: alert-flash 1s infinite; }
+    </style>
+</head>
+<body class="w-screen h-screen p-4 lg:p-8">
+    <canvas id="bio-bg"></canvas>
+    <div id="tooltip"></div>
+
+    <div class="flex flex-col h-full">
+        <!-- Header -->
+        <header class="mb-4">
+            <h1 class="text-3xl header-font text-green-300 flex items-center gap-3 tracking-widest">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z" /></svg>
+                CODESENSE: PROJECT CHIMERA
+            </h1>
+            <p class="text-green-500 text-sm">Digital DNA Sequencer & Anomaly Detector</p>
+        </header>
+
+        <main class="flex-grow grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-8 min-h-0">
+            <!-- Left Panel -->
+            <div class="hud-panel flex flex-col min-h-0">
+                <div class="p-4 border-b border-green-500/50 flex justify-between items-center">
+                    <h2 class="font-semibold text-lg text-green-400">DNA Sequencer</h2>
+                    <select id="languageSelector" class="bg-transparent border border-green-600 text-green-300 text-xs rounded p-1 focus:outline-none focus:ring-2 focus:ring-green-500">
+                        <option value="javascript">JavaScript</option><option value="python">Python</option><option value="java">Java</option><option value="cpp">C++</option><option value="sql">SQL</option>
+                    </select>
+                </div>
+                <div id="code-editor-wrapper" class="flex-grow min-h-0">
+                    <textarea id="codeInput" class="w-full h-full font-mono text-sm" spellcheck="false"></textarea>
+                    <pre><code id="highlightedCode" class="w-full h-full p-4 bg-transparent font-mono text-sm javascript"></code></pre>
+                </div>
+                <button id="runButton" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 transition-colors duration-200 flex-shrink-0 header-font tracking-widest">Analyze Specimen</button>
+            </div>
+
+            <!-- Right Panel -->
+            <div id="right-panel" class="hud-panel flex flex-col overflow-hidden">
+                <div class="p-4 border-b border-green-500/50">
+                    <h2 class="font-semibold text-lg text-green-400">Bio-Scan Visualization</h2>
+                </div>
+                <div id="graph-container-wrapper" class="flex-grow relative">
+                    <div id="graph-container" class="absolute inset-0 cursor-grab active:cursor-grabbing">
+                       <p id="placeholder" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-green-700">Awaiting Specimen...</p>
+                    </div>
+                    <!-- Bio-Scanner Panel -->
+                    <div id="inspector-panel" class="flex flex-col">
+                         <div class="p-4 border-b border-green-500/50 flex justify-between items-center">
+                            <h3 class="font-semibold text-green-400">Bio-Scanner</h3>
+                            <button id="inspector-close" class="text-gray-400 hover:text-white">&times;</button>
+                        </div>
+                        <div id="inspector-content" class="p-4 overflow-y-auto text-sm space-y-3"></div>
+                    </div>
+                </div>
+                <div id="summary-bar" class="p-3 border-t border-green-500/50 flex justify-center items-center gap-4 text-xs"></div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // --- DOM ELEMENTS ---
+        const codeInput = document.getElementById('codeInput'), highlightedCode = document.getElementById('highlightedCode'),
+              languageSelector = document.getElementById('languageSelector'), graphContainer = document.getElementById('graph-container'),
+              summaryBar = document.getElementById('summary-bar'), placeholder = document.getElementById('placeholder'),
+              tooltip = document.getElementById('tooltip'), runButton = document.getElementById('runButton'),
+              inspectorPanel = document.getElementById('inspector-panel'), inspectorContent = document.getElementById('inspector-content'),
+              inspectorClose = document.getElementById('inspector-close'), rightPanel = document.getElementById('right-panel');
+        
+        // --- THREE.JS SETUP ---
+        let scene, camera, renderer, dnaGroup, anomalies = [];
+        let isMouseDown = false, mouseX = 0, mouseY = 0, particles, clock = new THREE.Clock();
+
+        function initBioViz() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, graphContainer.clientWidth / graphContainer.clientHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+            renderer.setSize(graphContainer.clientWidth, graphContainer.clientHeight);
+            graphContainer.appendChild(renderer.domElement);
+            
+            dnaGroup = new THREE.Group(); scene.add(dnaGroup);
+            const ambientLight = new THREE.AmbientLight(0x404040, 3); scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
+            directionalLight.position.set(5, 3, 5); scene.add(directionalLight);
+            
+            camera.position.z = 15;
+            animate();
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if (!isMouseDown) dnaGroup.rotation.y += 0.002;
+            
+            const runtimeNode = anomalies.find(a => a.userData.data.type === 'runtime');
+            if (runtimeNode && particles) {
+                const delta = clock.getDelta() * 0.5;
+                particles.position.copy(runtimeNode.position);
+                particles.visible = true;
+                particles.material.uniforms.time.value += delta;
+            }
+            renderer.render(scene, camera);
+        }
+
+        // --- AUDIO SETUP ---
+        const alarmSound = new Tone.MembraneSynth().toDestination();
+        const heartbeat = new Tone.Loop(time => {
+            alarmSound.triggerAttackRelease("C1", "8n", time);
+        }, "2n").start(0);
+        Tone.Transport.bpm.value = 80;
+        const interactionSound = new Tone.Synth({ oscillator: { type: "sine" }, envelope: { attack: 0.005, decay: 0.1, sustain: 0.3, release: 1 } }).toDestination();
+        function playSound(note) { Tone.start(); interactionSound.triggerAttackRelease(note, "8n"); }
+
+        // --- SAMPLE CODE & ANALYSIS ---
+        // Sample codes remain the same
+        const sampleCodes = {
+            javascript: `function processData() {
+    let value = fetchData();
+    if (value) {
+        let result = transform(value);
+        return result;
+    }
+}
+function fetchData() { return null; }
+// This will cause a runtime error
+function transform(data) { return data.value.toUpperCase(); }
+let unused = 123;
+processData()`,
+            python: `class DataProcessor:
+    def __init__(self):
+        self.unused_var = "disconnected"
+
+    def fetch_data(self):
+        raise ValueError("Failed to fetch data")
+
+    def run(self):
+        print "Starting process..." # Syntax error in Python 3
+        self.fetch_data()
+
+processor = DataProcessor()
+processor.run()`,
+            java: `public class Main {
+    public static void main(String[] args) {
+        Database.connect();
+        processRequest(null); // Null pointer exception
+    }
+    public static void processRequest(String data) { System.out.println(data.length()); }
+    private void utilityHelper() { int unused = 10; }
+}`,
+            cpp: `#include <iostream>
+#include <vector>
+void printVector(std::vector<int> &v) {
+    std::cout << v.at(5) << std::endl; // Out of bounds error
+}
+int main() {
+    std::vector<int> myVector;
+    myVector.push_back(1);
+    printVector(myVector);
+    return 0;
+}`,
+            sql: `CREATE PROCEDURE GetUserDetails @UserID INT AS
+BEGIN
+    SELECT * FROM Users WHERE UserId = @UserID;
+    SELECT * FROM Orders WHERE UserId = @UserID
+END;
+EXEC GetUserDetails @UserID = 123;`
+        };
+        codeInput.value = sampleCodes.javascript;
+
+        function analyzeAndVisualize(runtimeError = null) {
+            const code = codeInput.value;
+            let functions = [], nodes = [], errorCount = { critical: 0, warning: 0, unused: 0, runtime: 0 }, nodeId = 0;
+            const lang = languageSelector.value;
+            
+            rightPanel.classList.remove('containment-breach');
+            Tone.Transport.stop(); heartbeat.stop();
+
+            if (runtimeError) {
+                nodes.push({ id: `runtime-${nodeId++}`, name: 'CONTAINMENT BREACH', type: 'runtime', message: runtimeError.message, line: runtimeError.line || 0 });
+                errorCount.runtime++;
+                rightPanel.classList.add('containment-breach');
+                Tone.Transport.start(); heartbeat.start(0);
+            }
+
+            if (lang === 'javascript') {
+                try {
+                    const ast = esprima.parseScript(code, { tolerant: true, loc: true });
+                    ast.errors.forEach(err => { nodes.push({ id: `critical-${nodeId++}`, name: 'SEQUENCE FRACTURE', type: 'critical', message: err.description, line: err.lineNumber }); errorCount.critical++; });
+                    const declaredVars = new Map(), usedVars = new Set();
+                    function traverse(node) {
+                        if (!node) return;
+                        if (node.type === 'FunctionDeclaration' && node.id) {
+                            functions.push({ id: node.id.name, name: node.id.name, type: 'function', line: node.loc.start.line });
+                        }
+                        if (node.type === 'VariableDeclarator' && node.id) declaredVars.set(node.id.name, node.id.loc.start.line);
+                        else if (node.type === 'Identifier' && node.parent.type !== 'VariableDeclarator') usedVars.add(node.name);
+                        for (const key in node) { if (key !== 'parent') { const child = node[key]; if (child && typeof child === 'object') { child.parent = node; Array.isArray(child) ? child.forEach(traverse) : traverse(child); } } }
+                    }
+                    traverse(ast);
+                    declaredVars.forEach((line, name) => {
+                        if (!usedVars.has(name) && !functions.some(f => f.id === name)) {
+                            nodes.push({ id: `unused-${nodeId++}`, name: 'JUNK DNA', type: 'unused', message: `Unused variable: '${name}'`, line });
+                            errorCount.unused++;
+                        }
+                    });
+                } catch(e) {}
+            } else { // Mock parsers
+                 let funcRegex;
+                if(lang === 'python') funcRegex = /def\s+(\w+)/g;
+                if(lang === 'java' || lang === 'cpp') funcRegex = /(?:public|private|void|int|String|std::vector<int>)\s+(\w+)\s*\(/g;
+                if(lang === 'sql') funcRegex = /CREATE\s+PROCEDURE\s+(\w+)/g;
+                let match;
+                while((match = funcRegex.exec(code)) !== null) { functions.push({id: match[1], name: match[1], type: 'function', line: code.substring(0, match.index).split('\n').length}); }
+                if(lang === 'python' && code.includes('print "')) { nodes.push({id: `critical-${nodeId++}`, name: 'SEQUENCE FRACTURE', type: 'critical', message: 'Legacy print syntax (Python 2)', line: 8}); errorCount.critical++; }
+                if(lang === 'java' && code.includes('private void utilityHelper')) { nodes.push({id: `unused-${nodeId++}`, name: 'JUNK DNA', type: 'unused', message: 'Unused method: utilityHelper', line: 12}); errorCount.unused++; }
+                if(lang === 'cpp' && !code.trim().endsWith(';')) { nodes.push({id: `critical-${nodeId++}`, name: 'SEQUENCE FRACTURE', type: 'critical', message: 'Missing semicolon at end of statement', line: 11}); errorCount.critical++; }
+                if(lang === 'sql' && !code.trim().endsWith(';')) { nodes.push({id: `critical-${nodeId++}`, name: 'SEQUENCE FRACTURE', type: 'critical', message: 'Missing semicolon statement terminator', line: 6}); errorCount.critical++; }
+            }
+
+            renderBioStrand(functions.concat(nodes));
+            updateSummary(errorCount);
+        }
+        
+        function updateSummary(counts) {
+             const totalAnomalies = counts.runtime + counts.critical;
+            const stability = Math.max(0, 100 - totalAnomalies * 50 - counts.warning * 10);
+            const anomalyClass = totalAnomalies > 0 ? 'summary-anomaly' : '';
+            summaryBar.innerHTML = `
+                <div class="flex items-center gap-2"><span class="text-green-400">Bio-Integrity: ${stability.toFixed(0)}%</span></div>
+                <div class="flex items-center gap-2 ${anomalyClass}"><div class="w-3 h-3 rounded-full bg-red-700"></div><span class="text-red-400">${totalAnomalies} Mutations</span></div>
+                <div class="flex items-center gap-2"><div class="w-3 h-3 rounded-full bg-gray-500"></div><span class="text-gray-400">${counts.unused} Junk DNA</span></div>`;
+        }
+
+        function renderBioStrand(nodesData) {
+            placeholder.style.display = 'none';
+            while(dnaGroup.children.length > 0) dnaGroup.remove(dnaGroup.children[0]);
+            anomalies = [];
+
+            const totalNodes = nodesData.length;
+            const helixRadius = 5, helixHeight = 20;
+
+            nodesData.forEach((d, i) => {
+                const y = -helixHeight / 2 + (i / totalNodes) * helixHeight;
+                const angle = y * 1.5;
+                let nodeObject;
+                let color, size;
+
+                switch (d.type) {
+                    case 'runtime': color = 0xff0000; size = 0.8; break;
+                    case 'critical': color = 0xff4444; size = 0.6; break;
+                    case 'unused': color = 0x6b7280; size = 0.2; break;
+                    default: color = 0x4ade80; size = 0.4; break; // function
+                }
+                
+                const material = new THREE.MeshPhongMaterial({ color, emissive: color, shininess: 100, emissiveIntensity: d.type.includes('error') ? 1 : 0.5 });
+                nodeObject = new THREE.Mesh(new THREE.IcosahedronGeometry(size, 1), material);
+                
+                nodeObject.position.set(Math.cos(angle) * helixRadius, y, Math.sin(angle) * helixRadius);
+                nodeObject.userData.data = d;
+                dnaGroup.add(nodeObject);
+                if(d.type !== 'function') anomalies.push(nodeObject);
+            });
+        }
+        
+        // --- EVENT LISTENERS ---
+        runButton.addEventListener('click', () => {
+             playSound('A4');
+            const lang = languageSelector.value;
+            if (lang !== 'javascript') {
+                let mockError;
+                if (lang === 'python') mockError = { message: 'ValueError: Failed to fetch data', line: 7 };
+                else if (lang === 'java') mockError = { message: 'java.lang.NullPointerException', line: 4 };
+                else if (lang === 'cpp') mockError = { message: 'std::out_of_range: vector::_M_range_check', line: 5 };
+                analyzeAndVisualize(mockError);
+                return;
+            }
+            const codeToRun = codeInput.value;
+            const workerCode = `self.onmessage = function(e) { try { eval(e.data); self.postMessage({ success: true }); } catch (err) { self.postMessage({ success: false, error: { message: err.message, stack: err.stack } }); } }`;
+            const blob = new Blob([workerCode], { type: 'application/javascript' });
+            const worker = new Worker(URL.createObjectURL(blob));
+            worker.onmessage = (e) => {
+                if (e.data.success) analyzeAndVisualize();
+                else {
+                    let lineNumber = null;
+                    if (e.data.error.stack) { const match = e.data.error.stack.match(/:(\d+):\d+/); if (match && match[1]) lineNumber = parseInt(match[1], 10) - 1; }
+                    analyzeAndVisualize({ message: e.data.error.message, line: lineNumber });
+                }
+                worker.terminate();
+            }; worker.postMessage(codeToRun);
+        });
+
+        let timeout;
+        codeInput.addEventListener('input', () => {
+            highlightedCode.textContent = codeInput.value;
+            hljs.highlightElement(highlightedCode);
+            clearTimeout(timeout);
+            timeout = setTimeout(() => analyzeAndVisualize(), 500);
+        });
+
+        function highlightLineInEditor(lineNumber) {
+             const code = codeInput.value;
+            const lang = languageSelector.value;
+            const highlighted = hljs.highlight(code, { language: lang, ignoreIllegals: true }).value;
+            const lines = highlighted.split('\n');
+            if (lineNumber > 0 && lineNumber <= lines.length) {
+                lines[lineNumber - 1] = `<span class="highlighted-line">${lines[lineNumber - 1] || '&nbsp;'}</span>`;
+            }
+            highlightedCode.innerHTML = lines.join('\n');
+            const lineHeight = 21; 
+            codeInput.scrollTop = (lineNumber - 3) * lineHeight;
+        }
+
+        function createTracerBeam(startPos, endPos) {
+             const tracer = document.createElement('div');
+            tracer.className = 'tracer-beam';
+            document.body.appendChild(tracer);
+            const dx = endPos.x - startPos.x;
+            const dy = endPos.y - startPos.y;
+            const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            tracer.style.left = `${startPos.x}px`;
+            tracer.style.top = `${startPos.y}px`;
+            tracer.style.height = `${distance}px`;
+            tracer.style.transform = `rotate(${angle + 90}deg)`;
+            setTimeout(() => tracer.remove(), 500);
+        }
+
+        codeInput.addEventListener('scroll', () => { highlightedCode.parentElement.scrollTop = codeInput.scrollTop; highlightedCode.parentElement.scrollLeft = codeInput.scrollLeft; });
+        languageSelector.addEventListener('change', (e) => {
+            const lang = e.target.value;
+            codeInput.value = sampleCodes[lang];
+            highlightedCode.className = `w-full h-full p-4 bg-transparent font-mono text-sm ${lang}`;
+            highlightedCode.textContent = codeInput.value;
+            hljs.highlightElement(highlightedCode);
+            analyzeAndVisualize();
+            playSound('C4');
+        });
+        
+        // --- INTERACTION & BG ---
+        graphContainer.addEventListener('mousedown', (e) => { isMouseDown = true; mouseX = e.clientX; mouseY = e.clientY; playSound('A2'); });
+        document.addEventListener('mouseup', () => isMouseDown = false );
+        
+        graphContainer.addEventListener('click', (e) => {
+            const raycaster = new THREE.Raycaster(); const mouse = new THREE.Vector2(); const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1; mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(dnaGroup.children);
+            if (intersects.length > 0 && intersects[0].object.userData.data) {
+                const data = intersects[0].object.userData.data;
+                if (data.line && (data.type === 'runtime' || data.type === 'critical')) {
+                    playSound('E4');
+                    highlightLineInEditor(data.line);
+                    const startPos = { x: e.clientX, y: e.clientY };
+                    const editorRect = codeInput.getBoundingClientRect();
+                    const lineHeight = 21;
+                    const endPos = { x: editorRect.left + 20, y: editorRect.top + (data.line * lineHeight) - (lineHeight / 2) };
+                    createTracerBeam(startPos, endPos);
+                    showInspector(data);
+                }
+            }
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (isMouseDown) {
+                const deltaX = e.clientX - mouseX, deltaY = e.clientY - mouseY;
+                dnaGroup.rotation.y += deltaX * 0.005;
+                dnaGroup.rotation.x += deltaY * 0.005;
+                mouseX = e.clientX; mouseY = e.clientY;
+            }
+             const raycaster = new THREE.Raycaster(); const mouse = new THREE.Vector2(); const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1; mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(dnaGroup.children);
+            if (intersects.length > 0 && intersects[0].object.userData.data) {
+                const data = intersects[0].object.userData.data;
+                tooltip.style.display = 'block';
+                tooltip.style.left = (e.clientX + 15) + 'px'; tooltip.style.top = (e.clientY + 15) + 'px';
+                let tooltipText = `<b>${data.name}</b><br>${data.message || `Type: Gene (Function)`}`;
+                if (data.type === 'runtime' || data.type === 'critical') {
+                    tooltipText += `<br><span class="text-green-400 text-xs">[Click to Scan]</span>`;
+                }
+                tooltip.innerHTML = tooltipText;
+            } else { tooltip.style.display = 'none'; }
+        });
+        
+        window.addEventListener('resize', () => { camera.aspect = graphContainer.clientWidth / graphContainer.clientHeight; camera.updateProjectionMatrix(); renderer.setSize(graphContainer.clientWidth, graphContainer.clientHeight); });
+        
+        const bgCanvas = document.getElementById('bio-bg'), bgCtx = bgCanvas.getContext('2d');
+        bgCanvas.width = window.innerWidth; bgCanvas.height = window.innerHeight;
+        let particlesArray = [];
+        class Particle { 
+            constructor() { this.x = Math.random() * bgCanvas.width; this.y = Math.random() * bgCanvas.height; this.size = Math.random() * 2 + 1; this.speedX = Math.random() * 1 - 0.5; this.speedY = Math.random() * 1 - 0.5;}
+            update() { this.x += this.speedX; this.y += this.speedY; if (this.size > 0.1) this.size -= 0.01; }
+            draw() { bgCtx.fillStyle = 'rgba(74, 222, 128, 0.5)'; bgCtx.beginPath(); bgCtx.arc(this.x, this.y, this.size, 0, Math.PI * 2); bgCtx.fill(); }
+        }
+        function initParticles() { for (let i = 0; i < 100; i++) particlesArray.push(new Particle()); }
+        function handleParticles() {
+            for (let i = 0; i < particlesArray.length; i++) {
+                particlesArray[i].update();
+                particlesArray[i].draw();
+                if (particlesArray[i].size <= 0.1) { particlesArray.splice(i, 1); i--; particlesArray.push(new Particle()); }
+            }
+        }
+        function animateBg() { bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height); handleParticles(); requestAnimationFrame(animateBg); }
+        initParticles(); animateBg();
+        
+        // --- INSPECTOR PANEL FUNCTIONS ---
+        function getSimpleExplanation(message) {
+            if (message.includes("Cannot read properties of null") || message.includes("NullPointerException")) return "Cellular Necrosis Detected. The sequence is attempting to reference a biological marker that is null or non-existent. Verify that all bio-markers are initialized before being accessed.";
+            if (message.includes("is not a function")) return "Invalid Genetic Expression. A data segment is being triggered as an executable gene sequence, but it is not a valid function. Check for sequence typos.";
+            if (message.includes("Missing semicolon")) return "Sequence Terminator Missing. A genetic instruction is not properly terminated. This can lead to unpredictable chain reactions and sequence corruption.";
+            if (message.includes("out of bounds") || message.includes("out_of_range")) return "Genetic Marker Out Of Bounds. The sequence is trying to access a marker outside of the defined DNA strand. Check array lengths and access indices.";
+            if (message.includes("ValueError")) return "Invalid Bio-Marker Value. A gene received a marker of the correct type, but the value is biologically unviable, causing a rejection.";
+            if (message.includes("Legacy print statement")) return "Archaic Genetic Dialect. The sequence uses a deprecated `print` instruction from an older genome. It must be updated to the modern `print()` function format for stability.";
+            return "No specific analysis available for this mutation.";
+        }
+        
+        function showInspector(data) {
+            const errorLine = codeInput.value.split('\n')[data.line - 1] || "[Could not retrieve line]";
+            inspectorContent.innerHTML = `
+                <div><label class="text-green-500 text-xs">MUTATION TYPE</label><p class="text-red-400 font-bold">${data.name}</p></div>
+                <div><label class="text-green-500 text-xs">SEQUENCE LOCATION</label><p>Line ${data.line}</p></div>
+                <div><label class="text-green-500 text-xs">SYSTEM DIAGNOSTIC</label><p>${data.message}</p></div>
+                <div><label class="text-green-500 text-xs">CORRUPTED SNIPPET</label><pre>${errorLine.trim()}</pre></div>
+                <div><label class="text-green-500 text-xs">MUTATION ANALYSIS</label><p class="text-gray-300">${getSimpleExplanation(data.message)}</p></div>
+            `;
+            inspectorPanel.classList.add('open');
+        }
+        function hideInspector() { inspectorPanel.classList.remove('open'); }
+        inspectorClose.addEventListener('click', hideInspector);
+
+
+        // --- INITIAL LOAD ---
+        highlightedCode.textContent = codeInput.value;
+        hljs.highlightElement(highlightedCode);
+        initBioViz();
+        analyzeAndVisualize();
+    </script>
+</body>
+</html>
+
